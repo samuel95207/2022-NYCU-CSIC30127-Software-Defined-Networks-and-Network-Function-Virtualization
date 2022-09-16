@@ -1,0 +1,21 @@
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    
+tcp        0      0 127.0.0.1:5005          0.0.0.0:*               LISTEN      7291/java           
+tcp        0      0 127.0.0.1:631           0.0.0.0:*               LISTEN      933/cupsd           
+tcp        0      0 127.0.0.1:36891         0.0.0.0:*               LISTEN      3607/node           
+tcp        0      0 0.0.0.0:6656            0.0.0.0:*               LISTEN      1129/ovs-vswitchd   
+tcp        0      0 0.0.0.0:6654            0.0.0.0:*               LISTEN      1129/ovs-vswitchd   
+tcp        0      0 0.0.0.0:6655            0.0.0.0:*               LISTEN      1129/ovs-vswitchd   
+tcp        0      0 127.0.0.53:53           0.0.0.0:*               LISTEN      797/systemd-resolve 
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      952/sshd: /usr/sbin 
+tcp6       0      0 :::8181                 :::*                    LISTEN      7291/java           
+tcp6       0      0 :::8101                 :::*                    LISTEN      7291/java           
+tcp6       0      0 :::40193                :::*                    LISTEN      7291/java           
+tcp6       0      0 127.0.0.1:34703         :::*                    LISTEN      7291/java           
+tcp6       0      0 :::6633                 :::*                    LISTEN      7291/java           
+tcp6       0      0 :::6653                 :::*                    LISTEN      7291/java           
+tcp6       0      0 :::9876                 :::*                    LISTEN      7291/java           
+tcp6       0      0 :::1099                 :::*                    LISTEN      7291/java           
+tcp6       0      0 ::1:41865               :::*                    LISTEN      6938/bazel(onos)    
+tcp6       0      0 ::1:631                 :::*                    LISTEN      933/cupsd           
+tcp6       0      0 :::22                   :::*                    LISTEN      952/sshd: /usr/sbin 
