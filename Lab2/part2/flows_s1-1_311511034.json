@@ -6,7 +6,7 @@
     "criteria": [
       {
         "type": "ETH_TYPE",
-        "ip": "0x0806"
+        "ethType": "0x0806"
       }
     ]
   },
