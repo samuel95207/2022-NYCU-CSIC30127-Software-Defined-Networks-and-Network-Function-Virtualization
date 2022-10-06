@@ -65,8 +65,8 @@ public class AppComponent implements SomeInterface {
     private ReactivePacketProcessor processor;
     private HashMap<DeviceId, HashMap<MacAddress, PortNumber>> switchMacIpTable;
 
-    private int flowPriority = 50000;
-    private int flowTimeout = 60;
+    private int flowPriority = 30;
+    private int flowTimeout = 30;
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected ComponentConfigService cfgService;
@@ -169,26 +169,32 @@ public class AppComponent implements SomeInterface {
                 switchMacIpTable.put(deviceId, macIpTable);
             }
 
+            log.info(String.format("Add an entry to the port table of `%s`. MAC address: `%s` => Port: `%s`.",
+                    deviceId.toString(), srcMacAddress.toString(), inPort.toString()));
             macIpTable.put(srcMacAddress, inPort);
 
             outPort = macIpTable.get(dstMacAddress);
 
             if (outPort == null) {
+                log.info(String.format("MAC address `%s` is missed on `%s`. Flood the packet.",
+                        dstMacAddress.toString(), deviceId.toString()));
                 flood(context);
                 logMessage += "flood";
             } else {
-                installFlowRule(deviceId, dstMacAddress, outPort);
+                log.info(String.format("MAC address `%s` is matched on `%s`. Install a flow rule.",
+                        dstMacAddress.toString(), deviceId.toString()));
+                installFlowRule(deviceId, srcMacAddress, dstMacAddress, outPort);
                 packetOut(context, outPort);
                 logMessage += "install flow";
             }
 
-            log.info(logMessage);
+            // log.info(logMessage);
         }
     }
 
-    private void installFlowRule(DeviceId deviceId, MacAddress dstMac, PortNumber outPort) {
+    private void installFlowRule(DeviceId deviceId, MacAddress srcMac, MacAddress dstMac, PortNumber outPort) {
         FlowRule flowRule = DefaultFlowRule.builder()
-                .withSelector(DefaultTrafficSelector.builder().matchEthDst(dstMac).build())
+                .withSelector(DefaultTrafficSelector.builder().matchEthSrc(srcMac).matchEthDst(dstMac).build())
                 .withTreatment(DefaultTrafficTreatment.builder().setOutput(outPort).build())
                 .withPriority(flowPriority)
                 .fromApp(appId)
