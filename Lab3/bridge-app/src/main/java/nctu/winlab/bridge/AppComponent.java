@@ -86,7 +86,7 @@ public class AppComponent implements SomeInterface {
         packetService.addProcessor(processor, PacketProcessor.director(2));
 
         switchMacIpTable = new HashMap<DeviceId, HashMap<MacAddress, PortNumber>>();
-        
+
         requestIntercepts();
 
         log.info("Started");
@@ -100,11 +100,9 @@ public class AppComponent implements SomeInterface {
         flowRuleService.removeFlowRulesById(appId);
         packetService.removeProcessor(processor);
         processor = null;
-        
 
         log.info("Stopped");
     }
-
 
     @Modified
     public void modified(ComponentContext context) {
@@ -120,29 +118,27 @@ public class AppComponent implements SomeInterface {
         log.info("Invoked");
     }
 
-
     private void requestIntercepts() {
         packetService.requestPackets(DefaultTrafficSelector.builder().matchEthType(Ethernet.TYPE_IPV4).build(),
                 PacketPriority.REACTIVE, appId, Optional.empty());
         // packetService.requestPackets(DefaultTrafficSelector.builder().matchEthType(Ethernet.TYPE_ARP).build(),
-        //         PacketPriority.REACTIVE, appId, Optional.empty());
+        // PacketPriority.REACTIVE, appId, Optional.empty());
     }
 
     private void withdrawIntercepts() {
         packetService.cancelPackets(DefaultTrafficSelector.builder().matchEthType(Ethernet.TYPE_IPV4).build(),
                 PacketPriority.REACTIVE, appId, Optional.empty());
         // packetService.cancelPackets(DefaultTrafficSelector.builder().matchEthType(Ethernet.TYPE_ARP).build(),
-        //         PacketPriority.REACTIVE, appId, Optional.empty());
+        // PacketPriority.REACTIVE, appId, Optional.empty());
     }
 
     private class ReactivePacketProcessor implements PacketProcessor {
         @Override
         public void process(PacketContext context) {
 
-            
             InboundPacket pkt = context.inPacket();
             Ethernet ethPkt = pkt.parsed();
-            
+
             if (context.isHandled()) {
                 return;
             }
@@ -150,33 +146,33 @@ public class AppComponent implements SomeInterface {
             if (ethPkt == null) {
                 return;
             }
-            
+
             if (isControlPacket(ethPkt)) {
                 return;
             }
-            
+
             MacAddress srcMacAddress = ethPkt.getSourceMAC();
             MacAddress dstMacAddress = ethPkt.getDestinationMAC();
             PortNumber inPort = pkt.receivedFrom().port();
             PortNumber outPort = null;
             DeviceId deviceId = pkt.receivedFrom().deviceId();
-            
+
             String logMessage = "";
             logMessage += "\nPacket In\n";
-            logMessage += String.format("Switch %s\n%s to %s\n", deviceId.toString(), srcMacAddress.toString(), dstMacAddress.toString());
+            logMessage += String.format("Switch %s\n%s to %s\n", deviceId.toString(), srcMacAddress.toString(),
+                    dstMacAddress.toString());
 
-            
             HashMap<MacAddress, PortNumber> macIpTable = switchMacIpTable.get(deviceId);
-            
+
             if (macIpTable == null) {
                 macIpTable = new HashMap<MacAddress, PortNumber>();
                 switchMacIpTable.put(deviceId, macIpTable);
             }
-            
+
             macIpTable.put(srcMacAddress, inPort);
-            
+
             outPort = macIpTable.get(dstMacAddress);
-            
+
             if (outPort == null) {
                 flood(context);
                 logMessage += "flood";
@@ -185,7 +181,7 @@ public class AppComponent implements SomeInterface {
                 packetOut(context, outPort);
                 logMessage += "install flow";
             }
-            
+
             log.info(logMessage);
         }
     }
