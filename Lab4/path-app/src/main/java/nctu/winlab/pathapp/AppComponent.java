@@ -15,12 +15,9 @@
  */
 package nctu.winlab.pathapp;
 
-import org.onlab.packet.EthType;
 import org.onlab.packet.Ethernet;
-import org.onlab.packet.IP;
 import org.onlab.packet.IPv4;
 import org.onlab.packet.Ip4Address;
-import org.onlab.packet.IpAddress;
 import org.onlab.packet.MacAddress;
 import org.onosproject.cfg.ComponentConfigService;
 import org.onosproject.core.ApplicationId;
@@ -57,11 +54,9 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Dictionary;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.Set;
 
 import static org.onlab.util.Tools.get;
 
@@ -184,28 +179,27 @@ public class AppComponent implements SomeInterface {
             DeviceId deviceId = pkt.receivedFrom().deviceId();
 
             log.info(String.format("Packet-in from device %s", deviceId.toString()));
-            // log.info(String.format("%s to %s", srcIpAddress.toString(), dstIpAddress.toString()));
-
+            // log.info(String.format("%s to %s", srcIpAddress.toString(),
+            // dstIpAddress.toString()));
 
             // Get Topology from topologyService
             TopologyGraph topologyGraph = topologyService.getGraph(topologyService.currentTopology());
-
 
             // Use Dijkstra to find shortest path
             HashMap<DeviceId, PortNumber> path = dijkstra(topologyGraph, deviceId, dstHost.location().deviceId());
             path.put(dstHost.location().deviceId(), dstHost.location().port());
             // log.info(String.format("%s", path.toString()));
 
-
             // Check if path exist
-            if(path.size() == 1 && srcHost.location().deviceId() != dstHost.location().deviceId()){
-                // log.info(String.format("Cannot find path from %s to %s", dstMacAddress.toString(), srcMacAddress.toString()));
+            if (path.size() == 1 && srcHost.location().deviceId() != dstHost.location().deviceId()) {
+                // log.info(String.format("Cannot find path from %s to %s",
+                // dstMacAddress.toString(), srcMacAddress.toString()));
                 return;
             }
 
-            
             // Install flow rule on all switch on path
-            log.info(String.format("Start to install path from %s to %s", dstMacAddress.toString(), srcMacAddress.toString()));
+            log.info(String.format("Start to install path from %s to %s", dstMacAddress.toString(),
+                    srcMacAddress.toString()));
             for (Map.Entry<DeviceId, PortNumber> switchPortPair : path.entrySet()) {
                 installFlowRule(switchPortPair.getKey(), srcIpAddress, dstIpAddress, switchPortPair.getValue());
             }
@@ -214,10 +208,10 @@ public class AppComponent implements SomeInterface {
     }
 
     private HashMap<DeviceId, PortNumber> dijkstra(TopologyGraph topologyGraph, DeviceId src, DeviceId dst) {
-        
+
         ArrayList<TopologyVertex> vertexList = new ArrayList<TopologyVertex>(topologyGraph.getVertexes());
         HashMap<DeviceId, PortNumber> path = new HashMap<DeviceId, PortNumber>();
-        
+
         // Find the vertex index of src and dst
         int srcIndex = -1;
         int dstIndex = -1;
@@ -234,17 +228,16 @@ public class AppComponent implements SomeInterface {
             }
         }
 
-        if(srcIndex == -1 || dstIndex == -1){
+        if (srcIndex == -1 || dstIndex == -1) {
             return path;
         }
 
-
         // Dijkstra variable initialize
         int nVertices = vertexList.size();
-        int distanceList[] = new int[nVertices];
-        Boolean addedList[] = new Boolean[nVertices];
-        int parents[] = new int[nVertices];
-        TopologyEdge parentEdges[] = new TopologyEdge[nVertices];
+        int[] distanceList = new int[nVertices];
+        Boolean[] addedList = new Boolean[nVertices];
+        int[] parents = new int[nVertices];
+        TopologyEdge[] parentEdges = new TopologyEdge[nVertices];
 
         for (int i = 0; i < nVertices; i++) {
             distanceList[i] = Integer.MAX_VALUE;
@@ -255,7 +248,6 @@ public class AppComponent implements SomeInterface {
 
         // The distance from src to src is 0
         distanceList[srcIndex] = 0;
-
 
         // Iterate through nVertices-1 to add vertices to shortest path tree
         for (int i = 0; i < nVertices - 1; i++) {
@@ -271,12 +263,11 @@ public class AppComponent implements SomeInterface {
             }
 
             // Return empty path if path doesn't exist
-            if(minVertex == -1){
+            if (minVertex == -1) {
                 return path;
             }
 
             addedList[minVertex] = true;
-
 
             // Iterate through all edges connect to minVertex to find min distance edge
             ArrayList<TopologyEdge> edgeList = new ArrayList<TopologyEdge>(
@@ -301,22 +292,22 @@ public class AppComponent implements SomeInterface {
 
         }
 
-        
         // Add device, port pair to hashmap
         for (int i = dstIndex; parents[i] != -1; i = parents[i]) {
             path.put(vertexList.get(parents[i]).deviceId(), parentEdges[i].link().src().port());
-            // log.info(String.format("%s %s %s %s", vertexList.get(parents[i]).deviceId().toString(),
-            //         parentEdges[i].src().deviceId().toString(), parentEdges[i].dst().deviceId().toString(),
-            //         parentEdges[i].link().src().port().toString()));
+            // log.info(String.format("%s %s %s %s",
+            // vertexList.get(parents[i]).deviceId().toString(),
+            // parentEdges[i].src().deviceId().toString(),
+            // parentEdges[i].dst().deviceId().toString(),
+            // parentEdges[i].link().src().port().toString()));
         }
 
         return path;
 
     }
 
-  
     private void installFlowRule(
-        DeviceId deviceId, Ip4Address srcIp, Ip4Address dstIp, PortNumber outPort) {
+            DeviceId deviceId, Ip4Address srcIp, Ip4Address dstIp, PortNumber outPort) {
         log.info(String.format("Install flow rule on %s", deviceId.toString()));
         FlowRule flowRule = DefaultFlowRule.builder()
                 .withSelector(DefaultTrafficSelector.builder()
