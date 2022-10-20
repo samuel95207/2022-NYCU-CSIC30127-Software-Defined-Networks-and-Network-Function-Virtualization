@@ -1,0 +1,21 @@
+{
+  "priority": 50004,
+  "timeout": 0,
+  "isPermanent": true,
+  "selector": {
+    "criteria": [
+      {
+        "type": "ETH_TYPE",
+        "ethType": "0x0806"
+      },
+      {
+        "type": "ETH_SRC",
+        "mac": "00:00:00:00:00:02"
+      }
+    ]
+  },
+  "treatment": {
+    "instructions": [
+    ]
+  }
+}
