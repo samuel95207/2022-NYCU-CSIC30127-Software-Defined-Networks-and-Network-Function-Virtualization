@@ -19,10 +19,13 @@ import static org.onosproject.net.config.NetworkConfigEvent.Type.CONFIG_ADDED;
 import static org.onosproject.net.config.NetworkConfigEvent.Type.CONFIG_UPDATED;
 import static org.onosproject.net.config.basics.SubjectFactories.APP_SUBJECT_FACTORY;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Optional;
 
 import org.onlab.packet.Ethernet;
 import org.onlab.packet.IPv4;
+import org.onlab.packet.MacAddress;
 import org.onlab.packet.TpPort;
 import org.onlab.packet.UDP;
 import org.onosproject.core.ApplicationId;
@@ -37,6 +40,7 @@ import org.onosproject.net.config.NetworkConfigListener;
 import org.onosproject.net.config.NetworkConfigRegistry;
 import org.onosproject.net.flow.DefaultTrafficSelector;
 import org.onosproject.net.flow.TrafficSelector;
+import org.onosproject.net.intent.Intent;
 import org.onosproject.net.intent.IntentService;
 import org.onosproject.net.intent.PointToPointIntent;
 import org.onosproject.net.packet.InboundPacket;
@@ -71,6 +75,10 @@ public class AppComponent {
     private ReactivePacketProcessor processor;
 
     private ConnectPoint dhcpServer = null;
+    TrafficSelector.Builder selectorDhcpServer;
+    TrafficSelector.Builder selectorDhcpClient;
+
+    private HashMap<String, ArrayList<PointToPointIntent>> intentTable;
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected NetworkConfigRegistry cfgService;
@@ -90,7 +98,21 @@ public class AppComponent {
         processor = new ReactivePacketProcessor();
         packetService.addProcessor(processor, PacketProcessor.director(2));
 
+        selectorDhcpServer = DefaultTrafficSelector.builder()
+                .matchEthType(Ethernet.TYPE_IPV4)
+                .matchIPProtocol(IPv4.PROTOCOL_UDP)
+                .matchUdpDst(TpPort.tpPort(UDP.DHCP_SERVER_PORT))
+                .matchUdpSrc(TpPort.tpPort(UDP.DHCP_CLIENT_PORT));
+
+        selectorDhcpClient = DefaultTrafficSelector.builder()
+                .matchEthType(Ethernet.TYPE_IPV4)
+                .matchIPProtocol(IPv4.PROTOCOL_UDP)
+                .matchUdpDst(TpPort.tpPort(UDP.DHCP_CLIENT_PORT))
+                .matchUdpSrc(TpPort.tpPort(UDP.DHCP_SERVER_PORT));
+
         requestIntercepts();
+
+        intentTable = new HashMap<String, ArrayList<PointToPointIntent>>();
 
         log.info("Started");
     }
@@ -109,6 +131,19 @@ public class AppComponent {
             intentService.withdraw(intent);
         });
 
+        while (true) {
+            int count = 0;
+            for (Intent intent : intentService.getPending()) {
+                if (intent.appId() == appId) {
+                    count++;
+                }
+            }
+            // log.info("Remaining intent count = {}", count);
+            if (count == 0) {
+                break;
+            }
+        }
+
         intentService.getIntentsByAppId(appId).forEach((intent) -> {
             intentService.purge(intent);
         });
@@ -117,38 +152,16 @@ public class AppComponent {
     }
 
     private void requestIntercepts() {
-        TrafficSelector.Builder selectorServer = DefaultTrafficSelector.builder()
-                .matchEthType(Ethernet.TYPE_IPV4)
-                .matchIPProtocol(IPv4.PROTOCOL_UDP)
-                .matchUdpDst(TpPort.tpPort(UDP.DHCP_SERVER_PORT))
-                .matchUdpSrc(TpPort.tpPort(UDP.DHCP_CLIENT_PORT));
 
-        TrafficSelector.Builder selectorClient = DefaultTrafficSelector.builder()
-                .matchEthType(Ethernet.TYPE_IPV4)
-                .matchIPProtocol(IPv4.PROTOCOL_UDP)
-                .matchUdpDst(TpPort.tpPort(UDP.DHCP_CLIENT_PORT))
-                .matchUdpSrc(TpPort.tpPort(UDP.DHCP_SERVER_PORT));
-
-        packetService.requestPackets(selectorServer.build(), PacketPriority.REACTIVE, appId, Optional.empty());
-        packetService.requestPackets(selectorClient.build(), PacketPriority.REACTIVE, appId, Optional.empty());
+        packetService.requestPackets(selectorDhcpServer.build(), PacketPriority.REACTIVE, appId, Optional.empty());
+        packetService.requestPackets(selectorDhcpClient.build(), PacketPriority.REACTIVE, appId, Optional.empty());
 
     }
 
     private void withdrawIntercepts() {
-        TrafficSelector.Builder selectorServer = DefaultTrafficSelector.builder()
-                .matchEthType(Ethernet.TYPE_IPV4)
-                .matchIPProtocol(IPv4.PROTOCOL_UDP)
-                .matchUdpDst(TpPort.tpPort(UDP.DHCP_SERVER_PORT))
-                .matchUdpSrc(TpPort.tpPort(UDP.DHCP_CLIENT_PORT));
 
-        TrafficSelector.Builder selectorClient = DefaultTrafficSelector.builder()
-                .matchEthType(Ethernet.TYPE_IPV4)
-                .matchIPProtocol(IPv4.PROTOCOL_UDP)
-                .matchUdpDst(TpPort.tpPort(UDP.DHCP_CLIENT_PORT))
-                .matchUdpSrc(TpPort.tpPort(UDP.DHCP_SERVER_PORT));
-
-        packetService.cancelPackets(selectorServer.build(), PacketPriority.REACTIVE, appId, Optional.empty());
-        packetService.cancelPackets(selectorClient.build(), PacketPriority.REACTIVE, appId, Optional.empty());
+        packetService.cancelPackets(selectorDhcpServer.build(), PacketPriority.REACTIVE, appId, Optional.empty());
+        packetService.cancelPackets(selectorDhcpClient.build(), PacketPriority.REACTIVE, appId, Optional.empty());
 
     }
 
@@ -172,36 +185,60 @@ public class AppComponent {
 
             PortNumber inPort = pkt.receivedFrom().port();
             DeviceId deviceId = pkt.receivedFrom().deviceId();
+            MacAddress srcMacAddress = ethPkt.getSourceMAC();
+
             ConnectPoint dhcpClient = new ConnectPoint(deviceId, inPort);
+
+            if (dhcpClient.equals(dhcpServer)) {
+                // log.info("Intent error! Client same as Server.");
+                return;
+            }
+
+            if (intentTable.get(dhcpClient.toString()) != null) {
+                // log.info("Intent already exist.");
+                return;
+            }
+
+            TrafficSelector selectorServer = selectorDhcpServer.build();
+            TrafficSelector selectorClient = selectorDhcpClient
+                    .matchEthDst(srcMacAddress)
+                    .build();
 
             PointToPointIntent dhcpToServerIntent = PointToPointIntent.builder()
                     .appId(appId)
+                    .selector(selectorServer)
                     .filteredIngressPoint(new FilteredConnectPoint(dhcpClient))
                     .filteredEgressPoint(new FilteredConnectPoint(dhcpServer))
                     .priority(50000)
                     .build();
 
+
             PointToPointIntent dhcpToClientIntent = PointToPointIntent.builder()
                     .appId(appId)
+                    .selector(selectorClient)
                     .filteredIngressPoint(new FilteredConnectPoint(dhcpServer))
                     .filteredEgressPoint(new FilteredConnectPoint(dhcpClient))
                     .priority(50000)
                     .build();
-            
 
-            intentService.submit(dhcpToServerIntent);
             intentService.submit(dhcpToClientIntent);
-
-            log.info("Intent `{}`, port `{}` => `{}`, port `{}` is submitted.",
-                    dhcpToServerIntent.filteredIngressPoint().connectPoint().deviceId().toString(),
-                    dhcpToServerIntent.filteredIngressPoint().connectPoint().port().toString(),
-                    dhcpToServerIntent.filteredEgressPoint().connectPoint().deviceId().toString(),
-                    dhcpToServerIntent.filteredEgressPoint().connectPoint().port().toString());
             log.info("Intent `{}`, port `{}` => `{}`, port `{}` is submitted.",
                     dhcpToClientIntent.filteredIngressPoint().connectPoint().deviceId().toString(),
                     dhcpToClientIntent.filteredIngressPoint().connectPoint().port().toString(),
                     dhcpToClientIntent.filteredEgressPoint().connectPoint().deviceId().toString(),
                     dhcpToClientIntent.filteredEgressPoint().connectPoint().port().toString());
+
+            intentService.submit(dhcpToServerIntent);
+            log.info("Intent `{}`, port `{}` => `{}`, port `{}` is submitted.",
+                    dhcpToServerIntent.filteredIngressPoint().connectPoint().deviceId().toString(),
+                    dhcpToServerIntent.filteredIngressPoint().connectPoint().port().toString(),
+                    dhcpToServerIntent.filteredEgressPoint().connectPoint().deviceId().toString(),
+                    dhcpToServerIntent.filteredEgressPoint().connectPoint().port().toString());
+
+            ArrayList<PointToPointIntent> intentList = new ArrayList<PointToPointIntent>();
+            intentList.add(dhcpToServerIntent);
+            intentList.add(dhcpToClientIntent);
+            intentTable.put(dhcpClient.toString(), intentList);
 
             return;
 
