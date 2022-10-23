@@ -20,11 +20,9 @@ import org.onlab.packet.MacAddress;
 import org.onosproject.cfg.ComponentConfigService;
 import org.onosproject.core.ApplicationId;
 import org.onosproject.core.CoreService;
-import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Deactivate;
-import org.osgi.service.component.annotations.Modified;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.onosproject.net.DeviceId;
@@ -34,6 +32,7 @@ import org.onosproject.net.flow.DefaultTrafficSelector;
 import org.onosproject.net.flow.DefaultTrafficTreatment;
 import org.onosproject.net.flow.FlowRule;
 import org.onosproject.net.flow.FlowRuleService;
+import org.onosproject.net.flow.TrafficSelector;
 import org.onosproject.net.packet.InboundPacket;
 import org.onosproject.net.packet.PacketContext;
 import org.onosproject.net.packet.PacketPriority;
@@ -42,28 +41,25 @@ import org.onosproject.net.packet.PacketService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Dictionary;
-import java.util.Properties;
 import java.util.HashMap;
 import java.util.Optional;
-
-import static org.onlab.util.Tools.get;
 
 /**
  * Skeletal ONOS application component.
  */
-@Component(immediate = true, service = { SomeInterface.class }, property = {
-        "someProperty=Some Default String Value", })
-public class AppComponent implements SomeInterface {
+@Component(immediate = true)
+public class AppComponent {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
 
     /** Some configurable property. */
-    private String someProperty;
 
     private ApplicationId appId;
     private ReactivePacketProcessor processor;
     private HashMap<DeviceId, HashMap<MacAddress, PortNumber>> switchMacIpTable;
+
+    TrafficSelector.Builder selectorArp;
+    TrafficSelector.Builder selectorIpv4;
 
     private int flowPriority = 30;
     private int flowTimeout = 30;
@@ -79,7 +75,6 @@ public class AppComponent implements SomeInterface {
 
     @Activate
     protected void activate() {
-        cfgService.registerProperties(getClass());
 
         appId = coreService.getAppId("nctu.winlab.bridge");
         processor = new ReactivePacketProcessor();
@@ -87,6 +82,8 @@ public class AppComponent implements SomeInterface {
 
         switchMacIpTable = new HashMap<DeviceId, HashMap<MacAddress, PortNumber>>();
 
+        selectorArp = DefaultTrafficSelector.builder().matchEthType(Ethernet.TYPE_ARP);
+        selectorIpv4 = DefaultTrafficSelector.builder().matchEthType(Ethernet.TYPE_IPV4);
         requestIntercepts();
 
         log.info("Started");
@@ -94,7 +91,7 @@ public class AppComponent implements SomeInterface {
 
     @Deactivate
     protected void deactivate() {
-        cfgService.unregisterProperties(getClass(), false);
+
         withdrawIntercepts();
 
         flowRuleService.removeFlowRulesById(appId);
@@ -104,32 +101,18 @@ public class AppComponent implements SomeInterface {
         log.info("Stopped");
     }
 
-    @Modified
-    public void modified(ComponentContext context) {
-        Dictionary<?, ?> properties = context != null ? context.getProperties() : new Properties();
-        if (context != null) {
-            someProperty = get(properties, "someProperty");
-        }
-        log.info("Reconfigured");
-    }
-
-    @Override
-    public void someMethod() {
-        log.info("Invoked");
-    }
-
     private void requestIntercepts() {
-        packetService.requestPackets(DefaultTrafficSelector.builder().matchEthType(Ethernet.TYPE_IPV4).build(),
+        packetService.requestPackets(selectorArp.build(),
                 PacketPriority.REACTIVE, appId, Optional.empty());
-        // packetService.requestPackets(DefaultTrafficSelector.builder().matchEthType(Ethernet.TYPE_ARP).build(),
-        // PacketPriority.REACTIVE, appId, Optional.empty());
+        packetService.requestPackets(selectorIpv4.build(),
+                PacketPriority.REACTIVE, appId, Optional.empty());
     }
 
     private void withdrawIntercepts() {
-        packetService.cancelPackets(DefaultTrafficSelector.builder().matchEthType(Ethernet.TYPE_IPV4).build(),
+        packetService.cancelPackets(selectorArp.build(),
                 PacketPriority.REACTIVE, appId, Optional.empty());
-        // packetService.cancelPackets(DefaultTrafficSelector.builder().matchEthType(Ethernet.TYPE_ARP).build(),
-        // PacketPriority.REACTIVE, appId, Optional.empty());
+        packetService.cancelPackets(selectorIpv4.build(),
+                PacketPriority.REACTIVE, appId, Optional.empty());
     }
 
     private class ReactivePacketProcessor implements PacketProcessor {
