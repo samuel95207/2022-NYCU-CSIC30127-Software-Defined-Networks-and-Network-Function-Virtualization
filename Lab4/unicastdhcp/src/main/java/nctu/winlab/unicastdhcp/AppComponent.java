@@ -78,7 +78,7 @@ public class AppComponent {
     TrafficSelector.Builder selectorDhcpServer;
     TrafficSelector.Builder selectorDhcpClient;
 
-    private HashMap<String, ArrayList<PointToPointIntent>> intentTable;
+    private HashMap<MacAddress, ArrayList<PointToPointIntent>> intentTable;
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected NetworkConfigRegistry cfgService;
@@ -112,7 +112,7 @@ public class AppComponent {
 
         requestIntercepts();
 
-        intentTable = new HashMap<String, ArrayList<PointToPointIntent>>();
+        intentTable = new HashMap<MacAddress, ArrayList<PointToPointIntent>>();
 
         log.info("Started");
     }
@@ -123,10 +123,29 @@ public class AppComponent {
         cfgService.unregisterConfigFactory(factory);
 
         withdrawIntercepts();
+        deleteAllIntent();
 
         packetService.removeProcessor(processor);
         processor = null;
 
+        log.info("Stopped");
+    }
+
+    private void requestIntercepts() {
+
+        packetService.requestPackets(selectorDhcpServer.build(), PacketPriority.REACTIVE, appId, Optional.empty());
+        packetService.requestPackets(selectorDhcpClient.build(), PacketPriority.REACTIVE, appId, Optional.empty());
+
+    }
+
+    private void withdrawIntercepts() {
+
+        packetService.cancelPackets(selectorDhcpServer.build(), PacketPriority.REACTIVE, appId, Optional.empty());
+        packetService.cancelPackets(selectorDhcpClient.build(), PacketPriority.REACTIVE, appId, Optional.empty());
+
+    }
+
+    private void deleteAllIntent() {
         intentService.getIntentsByAppId(appId).forEach((intent) -> {
             intentService.withdraw(intent);
         });
@@ -147,22 +166,6 @@ public class AppComponent {
         intentService.getIntentsByAppId(appId).forEach((intent) -> {
             intentService.purge(intent);
         });
-
-        log.info("Stopped");
-    }
-
-    private void requestIntercepts() {
-
-        packetService.requestPackets(selectorDhcpServer.build(), PacketPriority.REACTIVE, appId, Optional.empty());
-        packetService.requestPackets(selectorDhcpClient.build(), PacketPriority.REACTIVE, appId, Optional.empty());
-
-    }
-
-    private void withdrawIntercepts() {
-
-        packetService.cancelPackets(selectorDhcpServer.build(), PacketPriority.REACTIVE, appId, Optional.empty());
-        packetService.cancelPackets(selectorDhcpClient.build(), PacketPriority.REACTIVE, appId, Optional.empty());
-
     }
 
     private class ReactivePacketProcessor implements PacketProcessor {
@@ -194,12 +197,18 @@ public class AppComponent {
                 return;
             }
 
-            if (intentTable.get(dhcpClient.toString()) != null) {
+            if (intentTable.get(srcMacAddress) != null) {
                 // log.info("Intent already exist.");
+                // ArrayList<PointToPointIntent> oldIntents = intentTable.get(srcMacAddress);
+                // for (PointToPointIntent oldIntent : oldIntents) {
+                // intentService.withdraw(oldIntent);
+                // }
                 return;
             }
 
-            TrafficSelector selectorServer = selectorDhcpServer.build();
+            TrafficSelector selectorServer = selectorDhcpServer
+                    .matchEthSrc(srcMacAddress)
+                    .build();
             TrafficSelector selectorClient = selectorDhcpClient
                     .matchEthDst(srcMacAddress)
                     .build();
@@ -212,7 +221,6 @@ public class AppComponent {
                     .priority(50000)
                     .build();
 
-
             PointToPointIntent dhcpToClientIntent = PointToPointIntent.builder()
                     .appId(appId)
                     .selector(selectorClient)
@@ -221,13 +229,6 @@ public class AppComponent {
                     .priority(50000)
                     .build();
 
-            intentService.submit(dhcpToClientIntent);
-            log.info("Intent `{}`, port `{}` => `{}`, port `{}` is submitted.",
-                    dhcpToClientIntent.filteredIngressPoint().connectPoint().deviceId().toString(),
-                    dhcpToClientIntent.filteredIngressPoint().connectPoint().port().toString(),
-                    dhcpToClientIntent.filteredEgressPoint().connectPoint().deviceId().toString(),
-                    dhcpToClientIntent.filteredEgressPoint().connectPoint().port().toString());
-
             intentService.submit(dhcpToServerIntent);
             log.info("Intent `{}`, port `{}` => `{}`, port `{}` is submitted.",
                     dhcpToServerIntent.filteredIngressPoint().connectPoint().deviceId().toString(),
@@ -235,10 +236,17 @@ public class AppComponent {
                     dhcpToServerIntent.filteredEgressPoint().connectPoint().deviceId().toString(),
                     dhcpToServerIntent.filteredEgressPoint().connectPoint().port().toString());
 
+            intentService.submit(dhcpToClientIntent);
+            log.info("Intent `{}`, port `{}` => `{}`, port `{}` is submitted.",
+                    dhcpToClientIntent.filteredIngressPoint().connectPoint().deviceId().toString(),
+                    dhcpToClientIntent.filteredIngressPoint().connectPoint().port().toString(),
+                    dhcpToClientIntent.filteredEgressPoint().connectPoint().deviceId().toString(),
+                    dhcpToClientIntent.filteredEgressPoint().connectPoint().port().toString());
+
             ArrayList<PointToPointIntent> intentList = new ArrayList<PointToPointIntent>();
             intentList.add(dhcpToServerIntent);
             intentList.add(dhcpToClientIntent);
-            intentTable.put(dhcpClient.toString(), intentList);
+            intentTable.put(srcMacAddress, intentList);
 
             return;
 
