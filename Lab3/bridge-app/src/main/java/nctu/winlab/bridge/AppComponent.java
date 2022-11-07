@@ -33,6 +33,9 @@ import org.onosproject.net.flow.DefaultTrafficTreatment;
 import org.onosproject.net.flow.FlowRule;
 import org.onosproject.net.flow.FlowRuleService;
 import org.onosproject.net.flow.TrafficSelector;
+import org.onosproject.net.flowobjective.DefaultForwardingObjective;
+import org.onosproject.net.flowobjective.FlowObjectiveService;
+import org.onosproject.net.flowobjective.Objective;
 import org.onosproject.net.packet.InboundPacket;
 import org.onosproject.net.packet.PacketContext;
 import org.onosproject.net.packet.PacketPriority;
@@ -70,6 +73,8 @@ public class AppComponent {
     protected PacketService packetService;
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected FlowRuleService flowRuleService;
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected FlowObjectiveService flowObjectiveService;
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected CoreService coreService;
 
@@ -166,7 +171,9 @@ public class AppComponent {
             } else {
                 log.info(String.format("MAC address `%s` is matched on `%s`. Install a flow rule.",
                         dstMacAddress.toString(), deviceId.toString()));
-                installFlowRule(deviceId, srcMacAddress, dstMacAddress, outPort);
+                // installFlowRule(deviceId, srcMacAddress, dstMacAddress, outPort);
+                installFlowObjective(deviceId, srcMacAddress, dstMacAddress, outPort);
+
                 packetOut(context, outPort);
                 logMessage += "install flow";
             }
@@ -185,6 +192,18 @@ public class AppComponent {
                 .makeTemporary(flowTimeout)
                 .build();
         flowRuleService.applyFlowRules(flowRule);
+    }
+
+    private void installFlowObjective(DeviceId deviceId, MacAddress srcMac, MacAddress dstMac, PortNumber outPort) {
+        Objective objective = DefaultForwardingObjective.builder()
+                .withSelector(DefaultTrafficSelector.builder().matchEthSrc(srcMac).matchEthDst(dstMac).build())
+                .withTreatment(DefaultTrafficTreatment.builder().setOutput(outPort).build())
+                .withPriority(flowPriority)
+                .fromApp(appId)
+                .makeTemporary(flowTimeout)
+                .withFlag(DefaultForwardingObjective.Flag.SPECIFIC)
+                .add();
+        flowObjectiveService.apply(deviceId, objective);
     }
 
     private void packetOut(PacketContext context, PortNumber port) {
