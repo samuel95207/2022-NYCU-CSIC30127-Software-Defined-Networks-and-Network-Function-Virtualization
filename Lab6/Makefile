@@ -47,3 +47,15 @@ h3-ping:
 
 
 pingall: h1-ping h2-ping h3-ping
+
+
+zip:
+	rm -rf project6_311511034
+	rm -rf project6_311511034.zip
+	mkdir project6_311511034
+	cp -r config project6_311511034
+	cp -r docker-compose.yml project6_311511034
+	cp -r host.Dockerfile project6_311511034
+	cp -r Makefile project6_311511034
+	zip -r project6_311511034.zip project6_311511034
+	rm -rf project6_311511034
