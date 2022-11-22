@@ -19,3 +19,31 @@ clean-docker:
 clean-ovs:
 	sudo ovs-vsctl del-br ovs
 
+
+
+h1-ping:
+	docker exec -it h1 ping 172.18.0.2 -c 3
+	docker exec -it h1 ping 172.20.0.3 -c 3
+	docker exec -it h1 ping 172.19.0.3 -c 3
+	docker exec -it h1 ping 172.20.0.4 -c 3
+	docker exec -it h1 ping 172.21.0.3 -c 3
+	docker exec -it h1 ping 172.22.0.3 -c 3
+
+h2-ping:
+	docker exec -it h2 ping 172.19.0.2 -c 3
+	docker exec -it h2 ping 172.20.0.2 -c 3
+	docker exec -it h2 ping 172.18.0.3 -c 3
+	docker exec -it h2 ping 172.20.0.4 -c 3
+	docker exec -it h2 ping 172.21.0.3 -c 3
+	docker exec -it h1 ping 172.22.0.3 -c 3
+
+h3-ping:
+	docker exec -it h2 ping 172.22.0.2 -c 3
+	docker exec -it h2 ping 172.21.0.2 -c 3
+	docker exec -it h2 ping 172.20.0.3 -c 3
+	docker exec -it h2 ping 172.19.0.3 -c 3
+	docker exec -it h2 ping 172.20.0.2 -c 3
+	docker exec -it h1 ping 172.18.0.3 -c 3
+
+
+pingall: h1-ping h2-ping h3-ping
