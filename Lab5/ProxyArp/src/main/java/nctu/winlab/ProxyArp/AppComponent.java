@@ -81,7 +81,7 @@ public class AppComponent {
 
     @Activate
     protected void activate() {
-        appId = coreService.getAppId("nctu.winlab.bridge");
+        appId = coreService.getAppId("nctu.winlab.ProxyArp");
         processor = new ReactivePacketProcessor();
         packetService.addProcessor(processor, PacketProcessor.director(2));
 
