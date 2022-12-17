@@ -32,10 +32,10 @@
         }
     },
     "apps": {
-        "nycu.sdnfv.router": {
-            "router": {
+        "nycu.sdnfv.vrouter": {
+            "vrouter": {
                 "quagga": "of:0000000000000002/2",
-                "quagga-mac": "6a:24:52:b2:5b:60",
+                "quagga-mac": "FE:99:2A:8A:D7:00",
                 "virtual-ip": "192.168.50.254",
                 "virtual-mac": "00:00:00:00:00:01",
                 "peers": [
