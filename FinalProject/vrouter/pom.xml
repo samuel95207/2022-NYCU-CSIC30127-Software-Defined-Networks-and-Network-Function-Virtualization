@@ -39,11 +39,9 @@
         <onos.app.category>default</onos.app.category>
         <onos.app.url>http://onosproject.org</onos.app.url>
         <onos.app.readme>ONOS OSGi bundle archetype.</onos.app.readme>
-    </properties>
-
-    <properties>
         <onos.app.requires>org.onosproject.fpm</onos.app.requires>
     </properties>
+
 
     <dependencies>
         <dependency>
@@ -51,6 +49,12 @@
             <artifactId>onos-api</artifactId>
             <version>${onos.version}</version>
             <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.onosproject</groupId>
+            <artifactId>onos-apps-route-service-api</artifactId>
+            <version>${onos.version}</version>
         </dependency>
 
         <dependency>
@@ -86,11 +90,9 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
-                <!-- Uncomment to disable checkstyle validation
                 <configuration>
                     <skip>true</skip>
                 </configuration>
-                -->
             </plugin>
         </plugins>
     </build>

@@ -18,7 +18,6 @@ package nycu.sdnfv.vrouter;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.onosproject.cfg.ComponentConfigAdapter;
 
 /**
  * Set of tests of the ONOS application component.
@@ -30,7 +29,6 @@ public class AppComponentTest {
     @Before
     public void setUp() {
         component = new AppComponent();
-        component.cfgService = new ComponentConfigAdapter();
         component.activate();
     }
 
