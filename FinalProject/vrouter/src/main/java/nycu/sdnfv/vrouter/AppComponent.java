@@ -19,6 +19,7 @@ import static org.onosproject.net.config.NetworkConfigEvent.Type.CONFIG_ADDED;
 import static org.onosproject.net.config.NetworkConfigEvent.Type.CONFIG_UPDATED;
 import static org.onosproject.net.config.basics.SubjectFactories.APP_SUBJECT_FACTORY;
 
+import org.glassfish.jersey.internal.guava.MoreObjects.ToStringHelper;
 import org.onlab.packet.EthType;
 import org.onlab.packet.Ethernet;
 import org.onlab.packet.IPv4;
@@ -34,6 +35,7 @@ import org.onosproject.net.config.ConfigFactory;
 import org.onosproject.net.config.NetworkConfigEvent;
 import org.onosproject.net.config.NetworkConfigListener;
 import org.onosproject.net.config.NetworkConfigRegistry;
+import org.onosproject.net.edge.EdgePortService;
 import org.onosproject.net.flow.DefaultTrafficSelector;
 import org.onosproject.net.flow.DefaultTrafficTreatment;
 import org.onosproject.net.flow.TrafficSelector;
@@ -89,12 +91,13 @@ public class AppComponent {
     private ReactivePacketProcessor processor;
 
     private Boolean createBgpIntentFlag = false;
-    private Boolean createExternlToExternalIntentFlag = false;
 
     private String quaggaLocation = null;
     private String quaggaMac = null;
     private String virtualIp = null;
     private String virtualMac = null;
+
+    private Set<String> intentSet;
 
     /** Some configurable property. */
 
@@ -109,6 +112,8 @@ public class AppComponent {
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected RouteService routeService;
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected EdgePortService edgePortService;
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected CoreService coreService;
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected HostService hostService;
@@ -117,13 +122,16 @@ public class AppComponent {
     protected void activate() {
         appId = coreService.registerApplication("nycu.sdnfv.vrouter");
 
+        intentSet = new HashSet<String>();
+
+        cfgService.addListener(cfgListener);
+        cfgService.registerConfigFactory(factory);
+
         processor = new ReactivePacketProcessor();
         packetService.addProcessor(processor, PacketProcessor.director(6));
 
         requestIntercepts();
 
-        cfgService.addListener(cfgListener);
-        cfgService.registerConfigFactory(factory);
         log.info("Started");
     }
 
@@ -134,6 +142,9 @@ public class AppComponent {
 
         withdrawIntercepts();
         deleteAllIntent();
+
+        packetService.removeProcessor(processor);
+        processor = null;
 
         log.info("Stopped");
     }
@@ -206,13 +217,20 @@ public class AppComponent {
             IPv4 ipPkt = (IPv4) ethPkt.getPayload();
 
             Ip4Address dstIpAddress = Ip4Address.valueOf(ipPkt.getDestinationAddress());
+            Ip4Address srcIpAddress = Ip4Address.valueOf(ipPkt.getSourceAddress());
+            MacAddress dstMacAddress = ethPkt.getDestinationMAC();
+            MacAddress srcMacAddress = ethPkt.getSourceMAC();
 
             ResolvedRoute externalRoute = findExternalRoute(dstIpAddress);
             Host internalHost = findInternalHost(dstIpAddress);
 
-            // Find Internal
-
-            if (externalRoute != null) {
+            if (findInternalHost(srcIpAddress) != null && findInternalHost(dstIpAddress) != null) {
+                log.info("Both {} and {} are internal", srcIpAddress.toString(), dstIpAddress.toString());
+                return;
+            } else if (findExternalRoute(srcIpAddress) != null && findExternalRoute(dstIpAddress) != null) {
+                log.info("Both {} and {} are external", srcIpAddress.toString(), dstIpAddress.toString());
+                updateExternlToExternalIntent();
+            } else if (externalRoute != null) {
                 Ip4Address nextHopIpAddress = externalRoute.nextHop().getIp4Address();
                 MacAddress nextHopMacAddress = externalRoute.nextHopMac();
 
@@ -220,17 +238,67 @@ public class AppComponent {
                 ConnectPoint pktInPoint = pkt.receivedFrom();
                 ConnectPoint dstPoint = dstInterface.connectPoint();
 
-                log.info("nexthopMac {}", nextHopMacAddress);
+                if (edgePortService.isEdgePoint(pktInPoint)) {
+                    log.info("Point {} is edge point", pktInPoint.toString());
+                    // return;
+                }
 
-                TrafficSelector selector = DefaultTrafficSelector.builder()
+                if (pktInPoint == ConnectPoint.deviceConnectPoint(quaggaLocation)) {
+                    log.info("Point {} is quagga point", pktInPoint.toString());
+                    // return;
+                }
+
+                log.info("Packet To External\n" +
+                        "srcIp = {}\n" +
+                        "dstIp = {}\n" +
+                        "srcMac = {}\n" +
+                        "dstMac = {}\n" +
+                        "nextHopIp = {}\n" +
+                        "nextHopMac = {}",
+                        srcIpAddress.toString(),
+                        dstIpAddress.toString(),
+                        srcMacAddress.toString(),
+                        dstMacAddress.toString(),
+                        nextHopIpAddress.toString(),
+                        nextHopMacAddress.toString());
+
+                log.info("Add To External Intent\n" +
+                        "selectorIp {}\n" +
+                        "srcMac {}\n" +
+                        "dstMac = {}\n" +
+                        "ingressPoint = {}\n" +
+                        "egressPoint = {}",
+                        dstIpAddress.toString(),
+                        quaggaMac,
+                        nextHopMacAddress.toString(),
+                        pktInPoint.toString(),
+                        dstPoint.toString());
+
+                log.info("Add From External Intent\n" +
+                        "selectorIp {}\n" +
+                        "srcMac {}\n" +
+                        "dstMac = {}\n" +
+                        "ingressPoint = {}\n" +
+                        "egressPoint = {}",
+                        srcIpAddress.toString(),
+                        virtualMac,
+                        srcMacAddress.toString(),
+                        dstPoint.toString(),
+                        pktInPoint.toString());
+
+                TrafficSelector selector;
+                TrafficTreatment treatment;
+                PointToPointIntent intent;
+
+                selector = DefaultTrafficSelector.builder()
                         .matchEthType(EtherType.IPV4.ethType().toShort())
                         .matchIPDst(dstIpAddress.toIpPrefix())
                         .build();
-                TrafficTreatment treatment = DefaultTrafficTreatment.builder()
+                treatment = DefaultTrafficTreatment.builder()
                         .setEthSrc(MacAddress.valueOf(quaggaMac))
                         .setEthDst(nextHopMacAddress)
                         .build();
-                PointToPointIntent intent = PointToPointIntent.builder()
+                intent = PointToPointIntent.builder()
                         .appId(appId)
                         .selector(selector)
                         .filteredIngressPoint(new FilteredConnectPoint(pktInPoint))
@@ -239,7 +307,41 @@ public class AppComponent {
                         .priority(50000)
                         .build();
 
+                String intentId = String.format("%s/%s/%s/%s/%s", dstIpAddress.toString(),
+                        quaggaMac.toString(),
+                        nextHopIpAddress.toString(), pktInPoint.toString(), dstPoint.toString());
+
+                if (!intentSet.contains(intentId)) {
+                    intentService.submit(intent);
+                    intentSet.add(intentId);
+                }
+
+                selector = DefaultTrafficSelector.builder()
+                        .matchEthType(EtherType.IPV4.ethType().toShort())
+                        .matchIPDst(srcIpAddress.toIpPrefix())
+                        .build();
+                treatment = DefaultTrafficTreatment.builder()
+                        .setEthSrc(MacAddress.valueOf(virtualMac))
+                        .setEthDst(srcMacAddress)
+                        .build();
+                intent = PointToPointIntent.builder()
+                        .appId(appId)
+                        .selector(selector)
+                        .filteredIngressPoint(new FilteredConnectPoint(dstPoint))
+                        .filteredEgressPoint(new FilteredConnectPoint(pktInPoint))
+                        .treatment(treatment)
+                        .priority(50000)
+                        .build();
                 intentService.submit(intent);
+
+                intentId = String.format("%s/%s/%s/%s/%s", srcIpAddress.toString(),
+                        virtualMac.toString(),
+                        srcMacAddress.toString(), dstPoint.toString(), pktInPoint.toString());
+
+                if (!intentSet.contains(intentId)) {
+                    intentService.submit(intent);
+                    intentSet.add(intentId);
+                }
 
             } else if (internalHost != null) {
                 Ip4Address hostIpAddress = internalHost.ipAddresses().iterator().next().getIp4Address();
@@ -247,19 +349,70 @@ public class AppComponent {
 
                 ConnectPoint pktInPoint = pkt.receivedFrom();
                 ConnectPoint dstPoint = ConnectPoint.fromString(String.format("%s/%s",
-                        internalHost.location().deviceId(), internalHost.location().port().toString()));
+                        internalHost.location().deviceId(),
+                        internalHost.location().port().toString()));
 
-                log.info("dstPoint {}", dstPoint.toString());
+                if (edgePortService.isEdgePoint(pktInPoint)) {
+                    log.info("Point {} is edge point", pktInPoint.toString());
+                    // return;
+                }
 
-                TrafficSelector selector = DefaultTrafficSelector.builder()
+                if (pktInPoint == ConnectPoint.deviceConnectPoint(quaggaLocation)) {
+                    log.info("Point {} is quagga point", pktInPoint.toString());
+                    // return;
+                }
+
+                log.info("Packet From External\n" +
+                        "srcIp = {}\n" +
+                        "dstIp = {}\n" +
+                        "srcMac = {}\n" +
+                        "dstMac = {}\n" +
+                        "hostIp = {}\n" +
+                        "hostMac = {}",
+                        srcIpAddress.toString(),
+                        dstIpAddress.toString(),
+                        srcMacAddress.toString(),
+                        dstMacAddress.toString(),
+                        hostIpAddress.toString(),
+                        hostMacAddress.toString());
+
+                log.info("Add To Internal Intent\n" +
+                        "selectorIp {}\n" +
+                        "srcMac {}\n" +
+                        "dstMac = {}\n" +
+                        "ingressPoint = {}\n" +
+                        "egressPoint = {}",
+                        hostIpAddress.toString(),
+                        virtualMac,
+                        hostMacAddress.toString(),
+                        pktInPoint.toString(),
+                        dstPoint.toString());
+
+                log.info("Add From Internal Intent\n" +
+                        "selectorIp {}\n" +
+                        "srcMac {}\n" +
+                        "dstMac = {}\n" +
+                        "ingressPoint = {}\n" +
+                        "egressPoint = {}",
+                        srcIpAddress.toString(),
+                        quaggaMac,
+                        srcMacAddress.toString(),
+                        dstPoint.toString(),
+                        pktInPoint.toString());
+
+                TrafficSelector selector;
+                TrafficTreatment treatment;
+                PointToPointIntent intent;
+
+                selector = DefaultTrafficSelector.builder()
                         .matchEthType(EtherType.IPV4.ethType().toShort())
                         .matchIPDst(hostIpAddress.toIpPrefix())
                         .build();
-                TrafficTreatment treatment = DefaultTrafficTreatment.builder()
+                treatment = DefaultTrafficTreatment.builder()
                         .setEthSrc(MacAddress.valueOf(virtualMac))
                         .setEthDst(hostMacAddress)
                         .build();
-                PointToPointIntent intent = PointToPointIntent.builder()
+                intent = PointToPointIntent.builder()
                         .appId(appId)
                         .selector(selector)
                         .filteredIngressPoint(new FilteredConnectPoint(pktInPoint))
@@ -268,7 +421,40 @@ public class AppComponent {
                         .priority(50000)
                         .build();
 
-                intentService.submit(intent);
+                String intentId = String.format("%s/%s/%s/%s/%s", hostIpAddress.toString(),
+                        virtualMac.toString(),
+                        hostMacAddress.toString(), pktInPoint.toString(), dstPoint.toString());
+
+                if (!intentSet.contains(intentId)) {
+                    intentService.submit(intent);
+                    intentSet.add(intentId);
+                }
+
+                selector = DefaultTrafficSelector.builder()
+                        .matchEthType(EtherType.IPV4.ethType().toShort())
+                        .matchIPDst(srcIpAddress.toIpPrefix())
+                        .build();
+                treatment = DefaultTrafficTreatment.builder()
+                        .setEthSrc(MacAddress.valueOf(quaggaMac))
+                        .setEthDst(srcMacAddress)
+                        .build();
+                intent = PointToPointIntent.builder()
+                        .appId(appId)
+                        .selector(selector)
+                        .filteredIngressPoint(new FilteredConnectPoint(dstPoint))
+                        .filteredEgressPoint(new FilteredConnectPoint(pktInPoint))
+                        .treatment(treatment)
+                        .priority(50000)
+                        .build();
+
+                intentId = String.format("%s/%s/%s/%s/%s", srcIpAddress.toString(),
+                        quaggaMac.toString(),
+                        srcMacAddress.toString(), dstPoint.toString(), pktInPoint.toString());
+
+                if (!intentSet.contains(intentId)) {
+                    intentService.submit(intent);
+                    intentSet.add(intentId);
+                }
             }
 
         }
@@ -295,8 +481,7 @@ public class AppComponent {
 
         for (RouteInfo route : routes) {
             if (route.prefix().contains(dstIpAddress)) {
-                log.info("Find route to {}, prefix={}", dstIpAddress.toString(), route.prefix().toString());
-                return route.bestRoute().get();
+                return route.allRoutes().iterator().next();
             }
         }
 
@@ -305,11 +490,14 @@ public class AppComponent {
 
     private Host findInternalHost(Ip4Address dstIpAddress) {
         Set<Host> hostSet = hostService.getHostsByIp(dstIpAddress);
+        // log.info("Finding {} in hosts", dstIpAddress.toString());
         if (hostSet.isEmpty()) {
+            // log.info("Cannot find host {}", dstIpAddress.toString());
             return null;
         }
 
         Host host = hostSet.iterator().next();
+        // log.info("Find {} {}", dstIpAddress.toString(), host.toString());
 
         return host;
     }
@@ -317,6 +505,79 @@ public class AppComponent {
     private boolean isControlPacket(Ethernet eth) {
         short type = eth.getEtherType();
         return type == Ethernet.TYPE_LLDP || type == Ethernet.TYPE_BSN;
+    }
+
+    private void updateExternlToExternalIntent() {
+        log.info("Updating External to External intents");
+        Collection<RouteTableId> routeTable = routeService.getRouteTables();
+        Collection<RouteInfo> routes = null;
+
+        for (RouteTableId routeTableId : routeTable) {
+            if (routeTableId.toString() == "ipv4") {
+                routes = routeService.getRoutes(routeTableId);
+            }
+        }
+        if (routes == null) {
+            return;
+        }
+
+        for (RouteInfo route : routes) {
+
+            Ip4Address nextHopIpAddress = route.allRoutes().iterator().next().nextHop().getIp4Address();
+            MacAddress nextHopMacAddress = route.allRoutes().iterator().next().nextHopMac();
+            Interface dstInterface = interfaceService.getMatchingInterface(nextHopIpAddress);
+
+            ConnectPoint dstPoint = dstInterface.connectPoint();
+
+            Set<FilteredConnectPoint> ingressPoints = new HashSet<FilteredConnectPoint>();
+            for (RouteInfo inRoute : routes) {
+                Ip4Address inNextHopIpAddress = inRoute.allRoutes().iterator().next().nextHop().getIp4Address();
+                Interface inDstInterface = interfaceService.getMatchingInterface(inNextHopIpAddress);
+                if (inDstInterface.connectPoint() != dstPoint) {
+                    ingressPoints.add(new FilteredConnectPoint(inDstInterface.connectPoint()));
+                }
+            }
+
+            log.info("Add Ex to Ex Intent\n" +
+                    "Selector Ip {}\n" +
+                    "srcMac {}\n" +
+                    "dstMac {}\n" +
+                    "ingressPoints {}\n" +
+                    "egressPoint {}\n",
+                    route.toString(),
+                    quaggaMac,
+                    nextHopMacAddress.toString(),
+                    ingressPoints.toString(),
+                    dstPoint.toString());
+
+            TrafficSelector selector = DefaultTrafficSelector.builder()
+                    .matchEthType(EtherType.IPV4.ethType().toShort())
+                    .matchIPDst(route.prefix())
+                    .build();
+
+            TrafficTreatment treatment = DefaultTrafficTreatment.builder()
+                    .setEthSrc(MacAddress.valueOf(quaggaMac))
+                    .setEthDst(nextHopMacAddress)
+                    .build();
+
+            MultiPointToSinglePointIntent intent = MultiPointToSinglePointIntent.builder()
+                    .appId(appId)
+                    .selector(selector)
+                    .filteredIngressPoints(ingressPoints)
+                    .filteredEgressPoint(new FilteredConnectPoint(dstPoint))
+                    .treatment(treatment)
+                    .priority(50000)
+                    .build();
+
+            String intentId = String.format("%s/%s/%s/%s", route.prefix().toString(), quaggaMac.toString(),
+                    nextHopMacAddress.toString().toString(), dstPoint.toString());
+            if (!intentSet.contains(intentId)) {
+                log.info("Adding intent {}", intent.toString());
+                intentService.submit(intent);
+                intentSet.add(intentId);
+            }
+        }
+
     }
 
     private class RouterConfigListener implements NetworkConfigListener {
@@ -388,68 +649,20 @@ public class AppComponent {
                             intentService.submit(outBgpIntent);
                             intentService.submit(inBgpIntent);
 
-                            log.info("peerPoint: {}, quaggaPoint: {}", peerPoint.toString(), quaggaPoint.toString());
-                            log.info("peerIp: {}, quaggaIp: {}", peerIp4Address.toString(),
+                            log.info("Add BGP Intent\n" +
+                                    "peerPoint: {}\n" +
+                                    "quaggaPoint: {}\n" +
+                                    "peerIp: {}\n" +
+                                    "quaggaIp: {}\n",
+                                    peerPoint.toString(),
+                                    quaggaPoint.toString(),
+                                    peerIp4Address.toString(),
                                     quaggaIp4Address.toString());
 
                         }
                         createBgpIntentFlag = true;
                     }
 
-                    if (!createExternlToExternalIntentFlag) {
-                        Collection<RouteTableId> routeTable = routeService.getRouteTables();
-                        Collection<RouteInfo> routes = null;
-
-                        for (RouteTableId routeTableId : routeTable) {
-                            if (routeTableId.toString() == "ipv4") {
-                                routes = routeService.getRoutes(routeTableId);
-                            }
-                        }
-
-                        if (routes != null) {
-                            Set<FilteredConnectPoint> ingressPoints = new HashSet<FilteredConnectPoint>();
-                            for (RouteInfo route : routes) {
-                                Ip4Address nextHopIpAddress = route.bestRoute().get().nextHop().getIp4Address();
-                                Interface dstInterface = interfaceService.getMatchingInterface(nextHopIpAddress);
-                                ingressPoints.add(new FilteredConnectPoint(dstInterface.connectPoint()));
-                            }
-
-                            for (RouteInfo route : routes) {
-
-                                Ip4Address nextHopIpAddress = route.bestRoute().get().nextHop().getIp4Address();
-                                MacAddress nextHopMacAddress = route.bestRoute().get().nextHopMac();
-                                Interface dstInterface = interfaceService.getMatchingInterface(nextHopIpAddress);
-
-                                ConnectPoint dstPoint = dstInterface.connectPoint();
-
-                                TrafficSelector selector = DefaultTrafficSelector.builder()
-                                        .matchEthType(EtherType.IPV4.ethType().toShort())
-                                        .matchIPDst(route.prefix())
-                                        .build();
-
-                                TrafficTreatment treatment = DefaultTrafficTreatment.builder()
-                                        .setEthSrc(MacAddress.valueOf(quaggaMac))
-                                        .setEthDst(nextHopMacAddress)
-                                        .build();
-
-                                MultiPointToSinglePointIntent intent = MultiPointToSinglePointIntent.builder()
-                                        .appId(appId)
-                                        .selector(selector)
-                                        .filteredIngressPoints(ingressPoints)
-                                        .filteredEgressPoint(new FilteredConnectPoint(dstPoint))
-                                        .treatment(treatment)
-                                        .priority(50000)
-                                        .build();
-
-                                intentService.submit(intent);
-
-                            }
-
-                            createExternlToExternalIntentFlag = true;
-
-                        }
-
-                    }
                 }
             }
         }
