@@ -1,9 +1,6 @@
-#!/bin/sh
+#!/bin/bash
 
-if [ "$EUID" -ne 0 ]
-  then echo "Please run as root"
-  exit
-fi
+sudo apt update && sudo apt install -y isc-dhcp-server
 
-ln -s /etc/apparmor.d/usr.sbin.dhcpd /etc/apparmor.d/disable/
-apparmor_parser -R /etc/apparmor.d/usr.sbin.dhcpd
+sudo ln -s /etc/apparmor.d/usr.sbin.dhcpd etc/apparmor.d/disable/
+sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.dhcpd
