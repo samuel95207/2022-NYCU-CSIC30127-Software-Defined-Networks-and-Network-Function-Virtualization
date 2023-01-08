@@ -80,7 +80,7 @@ public class AppComponent {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final RouterConfigListener cfgListener = new RouterConfigListener();
     private final ConfigFactory<ApplicationId, RouterConfig> factory = new ConfigFactory<ApplicationId, RouterConfig>(
-            APP_SUBJECT_FACTORY, RouterConfig.class, "vrouter") {
+            APP_SUBJECT_FACTORY, RouterConfig.class, "router") {
         @Override
         public RouterConfig createConfig() {
             return new RouterConfig();
@@ -230,6 +230,7 @@ public class AppComponent {
             } else if (findExternalRoute(srcIpAddress) != null && findExternalRoute(dstIpAddress) != null) {
                 log.info("Both {} and {} are external", srcIpAddress.toString(), dstIpAddress.toString());
                 updateExternlToExternalIntent();
+                context.block();
             } else if (externalRoute != null) {
                 Ip4Address nextHopIpAddress = externalRoute.nextHop().getIp4Address();
                 MacAddress nextHopMacAddress = externalRoute.nextHopMac();
@@ -343,6 +344,8 @@ public class AppComponent {
                     intentSet.add(intentId);
                 }
 
+                context.block();
+
             } else if (internalHost != null) {
                 Ip4Address hostIpAddress = internalHost.ipAddresses().iterator().next().getIp4Address();
                 MacAddress hostMacAddress = internalHost.mac();
@@ -455,6 +458,9 @@ public class AppComponent {
                     intentService.submit(intent);
                     intentSet.add(intentId);
                 }
+
+                context.block();
+
             }
 
         }
